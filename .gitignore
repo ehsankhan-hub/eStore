@@ -45,3 +45,27 @@ testem.log
 # System Files
 .DS_Store
 Thumbs.db
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Railway
+api/node_modules/
+
+# Database
+*.sql
+!db/estore_database_setup.sql
+!db/estore_sample_data.sql
+
+# Logs
+*.log
+logs/
+
+# Docker
+.dockerignore
+
+# Build artifacts
+*.tgz
+*.tar.gz
