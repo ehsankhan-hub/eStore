@@ -6,7 +6,7 @@ const user = require("./routes/users");
 const bodyParser = require("body-parser");
 const orders = require("./routes/orders");
 const app = express();
-const PORT = 5001;
+const PORT = 5004;
 
 app.use(cors());
 app.use(bodyParser.json());

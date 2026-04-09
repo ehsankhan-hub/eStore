@@ -1,9 +1,10 @@
 const express = require("express");
+require('dotenv').config({ path: '../.env' });
 const cors = require("cors");
 const mysql = require("mysql2");
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5004;
 
 // Middleware
 app.use(cors());
@@ -21,8 +22,8 @@ const pool = mysql.createPool({
 
 // Health check
 app.get("/", (req, res) => {
-  res.json({ 
-    message: "eStore API is running on Railway!", 
+  res.json({
+    message: "eStore API is running on Railway!",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || "development"
   });
@@ -46,10 +47,10 @@ const users = require("../routes/users");
 const orders = require("../routes/orders");
 
 // Use routes
-app.use("/productCategories", productCategories);
-app.use("/products", products);
-app.use("/users", users);
-app.use("/orders", orders);
+app.use("/api/productCategories", productCategories);
+app.use("/api/products", products);
+app.use("/api/users", users);
+app.use("/api/orders", orders);
 
 // Start server
 app.listen(PORT, () => {

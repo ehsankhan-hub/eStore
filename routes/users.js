@@ -69,11 +69,69 @@ user.post("/login", async (req, res) => {
         city: foundUser.city,
         state: foundUser.state,
         pin: foundUser.pin,
+        email: foundUser.email,
       },
       message: "Login successful",
     });
   } catch (err) {
     console.log("Login Error: ", err);
+    res.status(500).send({
+      err: err.code || "INTERNAL_ERROR",
+      message: err.message || "Something went wrong",
+    });
+  }
+});
+
+user.get("/profile", async (req, res) => {
+  const email = req.query.email;
+
+  if (!email) {
+    return res.status(400).send({ message: "Email is required" });
+  }
+
+  try {
+    const [users] = await pool
+      .promise()
+      .query("select * from users where email = ?", [email]);
+
+    if (users.length === 0) {
+      return res.status(404).send({ message: "User not found" });
+    }
+
+    const foundUser = users[0];
+    res.status(200).send({
+      success: true,
+      data: {
+        personalInfo: {
+          id: foundUser.id,
+          firstName: foundUser.firstName,
+          lastName: foundUser.lastName,
+          name: `${foundUser.firstName} ${foundUser.lastName}`,
+          email: foundUser.email,
+          phone: foundUser.phone || "",
+          address: foundUser.address,
+          city: foundUser.city,
+          state: foundUser.state,
+          pin: foundUser.pin,
+          memberSince: foundUser.created_at || new Date().toISOString(),
+        },
+        shoppingStats: {
+          totalOrders: 0,
+          totalSpent: 0,
+          lastOrderDate: null,
+          wishlistItems: 0,
+          compareItems: 0,
+        },
+        recentOrders: [],
+        accountStatus: {
+          accountType: "Member",
+          verificationStatus: "Verified",
+          memberLevel: "Gold",
+        },
+      },
+    });
+  } catch (err) {
+    console.log("Profile Error: ", err);
     res.status(500).send({
       err: err.code || "INTERNAL_ERROR",
       message: err.message || "Something went wrong",
