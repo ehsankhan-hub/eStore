@@ -27,28 +27,43 @@ orders.post("/add", checkToken, async (req, res) => {
 
     const userId = users[0].id;
 
-    //Insert order
-    const [orderResult] = await pool
-      .promise()
-      .query(
+    const connection = await pool.promise().getConnection();
+    try {
+      await connection.beginTransaction();
+
+      //Insert order
+      const [orderResult] = await connection.query(
         `insert into orders (userId, userName, address, city, state, pin, total) values (?, ?, ?, ?, ?, ?, ?)`,
         [userId, userName, address, city, state, pin, total]
       );
 
-    const orderId = orderResult.insertId;
+      const orderId = orderResult.insertId;
 
-    //Insert order details
-    const insertPromises = orderDetails.map((item) =>
-      pool
-        .promise()
-        .query(
+      //Insert order details
+      for (const item of orderDetails) {
+        await connection.query(
           `insert into orderdetails (orderId, productId, qty, price, amount) values (?, ?, ?, ?, ?)`,
           [orderId, item.productId, item.qty, item.price, item.amount]
-        )
-    );
-    await Promise.all(insertPromises);
+        );
 
-    res.status(201).json({ message: "Order placed successfully." });
+        // Deduct stock from products table
+        console.log(`Deducting ${item.qty} from product ${item.productId}`);
+        const [updateResult] = await connection.query(
+          `update products set stock_quantity = stock_quantity - ? where id = ?`,
+          [item.qty, item.productId]
+        );
+        console.log(`Update result for product ${item.productId}:`, updateResult.affectedRows, "rows affected");
+      }
+
+      await connection.commit();
+      console.log(`Transaction committed for order ${orderId}`);
+      res.status(201).json({ message: "Order placed successfully." });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   } catch (error) {
     console.log("Order placement error: ", error);
     res.status(500).json({
