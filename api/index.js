@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 require('dotenv').config({ path: '../.env' });
 const cors = require("cors");
 const mysql = require("mysql2");
@@ -9,6 +10,7 @@ const PORT = process.env.PORT || 5004;
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use("/api/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // Database connection
 const pool = mysql.createPool({
@@ -45,12 +47,14 @@ const productCategories = require("../routes/productCategories");
 const products = require("../routes/products");
 const users = require("../routes/users");
 const orders = require("../routes/orders");
+const seller = require("../routes/seller");
 
 // Use routes
 app.use("/api/productCategories", productCategories);
 app.use("/api/products", products);
 app.use("/api/users", users);
 app.use("/api/orders", orders);
+app.use("/api/seller", seller);
 
 // Start server
 app.listen(PORT, () => {
