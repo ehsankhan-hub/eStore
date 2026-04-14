@@ -41,30 +41,35 @@ products.get("/", (req, res) => {
   //let query = "select * from products";
 
 
-   let query=`SELECT
-p.*,
- CONCAT('$', FORMAT(p.price, 2)) AS price, -- Formats price to string like '$129.99'
- COALESCE(
-     (SELECT
-         JSON_ARRAYAGG(ordered_images.imageFiles) -- Aggregate the pre-ordered filenames
-      FROM
-         (SELECT 
-              imageFiles -- Select the correct column name
-          FROM 
-              productimages -- Alias 'pi' used for the actual table
-          WHERE 
-              product_id = p.id
-          ORDER BY 
-              display_order ASC -- Order images here, before aggregation
-         ) AS ordered_images -- Alias for the subquery that provides ordered images
-     ),
-     JSON_ARRAY() -- Returns '[]' (empty JSON array string) if no images found
- ) AS galleryImages -- Column will contain image filenames as a JSON array string
+    let query=`SELECT
+ p.*,
+  CONCAT('$', FORMAT(p.price, 2)) AS formatted_price,
+  o.discount_pct,
+  o.offer_name,
+  o.expires_at,
+  CASE 
+    WHEN o.discount_pct > 0 THEN p.price * (1 - o.discount_pct / 100)
+    ELSE p.price
+  END as offer_price,
+  COALESCE(
+      (SELECT
+          JSON_ARRAYAGG(ordered_images.imageFiles)
+       FROM
+          (SELECT 
+               imageFiles
+           FROM 
+               productimages
+           WHERE 
+               product_id = p.id
+           ORDER BY 
+               display_order ASC
+          ) AS ordered_images
+      ),
+      JSON_ARRAY()
+  ) AS galleryImages
 FROM
  products p
--- Add WHERE clauses here if you need to filter products, e.g.:
--- WHERE p.id IN (1, 2);
--- ORDER BY p.id ASC; -- Optional: order the final products
+LEFT JOIN offers o ON p.id = o.productId AND o.is_active = 1 AND (o.expires_at IS NULL OR o.expires_at > NOW())
 `
  
  // Using template literal to insert the product ID.
@@ -79,32 +84,38 @@ debugger
 
   if (mainCategoryId) {
     query=`SELECT
-    p.*,  -- Selects all columns from the products table
+    p.*,
+    o.discount_pct,
+    o.offer_name,
+    o.expires_at,
+    CASE 
+      WHEN o.discount_pct > 0 THEN p.price * (1 - o.discount_pct / 100)
+      ELSE p.price
+    END as offer_price,
     COALESCE(
         (SELECT
-            JSON_ARRAYAGG(ordered_images.imageFiles) -- Use the correct image filename column
+            JSON_ARRAYAGG(ordered_images.imageFiles)
          FROM
             (SELECT 
-                 pi.imageFiles -- Select the actual image filename column
+                 pi.imageFiles
              FROM 
                  productimages pi
              WHERE 
-                 pi.product_id = p.id -- Correlate images to the current product
+                 pi.product_id = p.id
              ORDER BY 
-                 pi.display_order ASC -- Order images correctly
+                 pi.display_order ASC
             ) AS ordered_images
         ),
-        JSON_ARRAY() -- If a product has no images, returns an empty JSON array '[]'
-    ) AS galleryImages -- The new column containing the JSON array string of image filenames
+        JSON_ARRAY()
+    ) AS galleryImages
 FROM
     products p
 JOIN
     categories c ON p.category_id = c.id
+LEFT JOIN
+    offers o ON p.id = o.productId AND o.is_active = 1 AND (o.expires_at IS NULL OR o.expires_at > NOW())
 WHERE
-    c.parent_category_id = ? -- Your original filter condition
--- ORDER BY 
-  --  p.id ASC; -- Optional: order the final list of products
-    
+    c.parent_category_id = ?
     `;
     //query = `select products.* from products join categories on products.category_id = categories.id where categories.parent_category_id = ?`;
     queryParams.push(mainCategoryId);
@@ -420,22 +431,55 @@ pool.query(query, queryParams, (error, rawResultFromDriver) => {
 
 });
 
-// products.get("/:id", (req, res) => {
-//   let id = req.params.id;
-//   pool.query("select * from products where id = ?", [id], (error, products) => {
-//     if (error)
-//       res.status(500).send({
-//         error: error.code,
-//         message: error.message,
-//       });
-//     else res.status(200).send(products);
-//   });
-// });
+// @route   GET /api/products/hot-deals
+// @desc    Get top products with active offers
+products.get("/hot-deals", (req, res) => {
+  const query = `
+    SELECT p.*, o.discount_pct, o.offer_name, o.expires_at,
+    (p.price * (1 - o.discount_pct / 100)) as offer_price,
+    COALESCE(
+      (SELECT JSON_ARRAYAGG(pi.imageFiles) 
+       FROM productimages pi WHERE pi.product_id = p.id 
+       ORDER BY pi.display_order LIMIT 1),
+      JSON_ARRAY()
+    ) as galleryImages
+    FROM products p
+    JOIN offers o ON p.id = o.productId
+    WHERE o.is_active = 1 AND (o.expires_at IS NULL OR o.expires_at > NOW())
+    ORDER BY o.discount_pct DESC
+    LIMIT 10
+  `;
+  
+  pool.query(query, [], (error, results) => {
+    if (error) {
+       console.error(error);
+       return res.status(500).json({ error: error.message });
+    }
+    const dataRows = (Array.isArray(results) && Array.isArray(results[0]) ? results[0] : results).map(row => {
+      if (row.galleryImages && typeof row.galleryImages === 'string') {
+        try {
+          row.galleryImages = JSON.parse(row.galleryImages);
+        } catch (e) {
+          row.galleryImages = [];
+        }
+      }
+      return row;
+    });
+    res.json(dataRows);
+  });
+});
 
 products.get("/:id", (req, res) => {
   let id = req.params.id;
   let query = `SELECT
   p.*,
+  o.discount_pct,
+  o.offer_name,
+  o.expires_at,
+  CASE 
+    WHEN o.discount_pct > 0 THEN p.price * (1 - o.discount_pct / 100)
+    ELSE p.price
+  END as offer_price,
   COALESCE(
       (SELECT
           JSON_ARRAYAGG(ordered_images.imageFiles)
@@ -453,7 +497,9 @@ products.get("/:id", (req, res) => {
       JSON_ARRAY()
   ) AS galleryImages
 FROM
-  products p WHERE 
+  products p 
+LEFT JOIN offers o ON p.id = o.productId AND o.is_active = 1 AND (o.expires_at IS NULL OR o.expires_at > NOW())
+WHERE 
   p.id = ?`;
   
   pool.query(query, [id], (error, rawResultFromDriver) => {

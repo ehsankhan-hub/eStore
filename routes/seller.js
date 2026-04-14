@@ -61,6 +61,16 @@ router.post("/product", upload.array("images", 10), async (req, res) => {
         );
       }
     }
+    
+    // 3. Optional: Insert into offers table if discount was provided
+    const { discount_pct, expires_at } = req.body;
+    if (discount_pct && parseInt(discount_pct) > 0) {
+      await connection.query(
+        `INSERT INTO offers (productId, offer_name, discount_pct, expires_at) 
+         VALUES (?, ?, ?, ?)`,
+        [productId, "Introductory Offer", discount_pct, expires_at || null]
+      );
+    }
 
     await connection.commit();
     res.status(201).json({ 
@@ -110,6 +120,64 @@ router.get("/products/:sellerId", async (req, res) => {
   } catch (error) {
     console.error("Error fetching seller products:", error);
     res.status(500).json({ error: "Failed to fetch products", details: error.message });
+  }
+});
+
+// @route   POST /api/seller/offer
+// @desc    Add a new offer to a product
+router.post("/offer", async (req, res) => {
+  try {
+    const { productId, offer_name, discount_pct, expires_at } = req.body;
+    
+    // Deactivate existing active offers for this product first
+    await pool.query(
+      "UPDATE offers SET is_active = 0 WHERE productId = ? AND is_active = 1",
+      [productId]
+    );
+
+    const [result] = await pool.query(
+      `INSERT INTO offers (productId, offer_name, discount_pct, expires_at) 
+       VALUES (?, ?, ?, ?)`,
+      [productId, offer_name, discount_pct, expires_at || null]
+    );
+
+    res.status(201).json({ message: "Offer created successfully", offerId: result.insertId });
+  } catch (error) {
+    console.error("Error creating offer:", error);
+    res.status(500).json({ error: "Failed to create offer", details: error.message });
+  }
+});
+
+// @route   GET /api/seller/offers/:sellerId
+// @desc    Get all active offers for a seller
+router.get("/offers/:sellerId", async (req, res) => {
+  try {
+    const sellerId = req.params.sellerId;
+    const [rows] = await pool.query(
+      `SELECT o.*, p.product_name, p.price as original_price
+       FROM offers o
+       JOIN products p ON o.productId = p.id
+       WHERE p.seller_id = ?
+       ORDER BY o.created_at DESC`,
+      [sellerId]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching offers:", error);
+    res.status(500).json({ error: "Failed to fetch offers", details: error.message });
+  }
+});
+
+// @route   DELETE /api/seller/offer/:id
+// @desc    Delete an offer
+router.delete("/offer/:id", async (req, res) => {
+  try {
+    const offerId = req.params.id;
+    await pool.query("DELETE FROM offers WHERE id = ?", [offerId]);
+    res.json({ message: "Offer deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting offer:", error);
+    res.status(500).json({ error: "Failed to delete offer", details: error.message });
   }
 });
 
