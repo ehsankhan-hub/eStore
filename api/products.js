@@ -101,12 +101,10 @@ FROM
 JOIN
     categories c ON p.category_id = c.id
 WHERE
-    c.parent_category_id = ? -- Your original filter condition
--- ORDER BY 
-  --  p.id ASC; -- Optional: order the final list of products
-    
+    (c.id = ? OR c.parent_category_id = ?) 
     `;
     //query = `select products.* from products join categories on products.category_id = categories.id where categories.parent_category_id = ?`;
+    queryParams.push(mainCategoryId);
     queryParams.push(mainCategoryId);
 console.log('mainCategoryId '+mainCategoryId);
     if (keyword) {
