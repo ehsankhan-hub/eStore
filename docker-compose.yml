@@ -53,7 +53,7 @@ services:
     container_name: estore_app
     restart: always
     ports:
-      - "5001:5001"
+      - "5004:5004"
     environment:
       DB_HOST: mysql
       DB_USER: estore_user

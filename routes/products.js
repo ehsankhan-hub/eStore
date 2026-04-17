@@ -115,9 +115,10 @@ JOIN
 LEFT JOIN
     offers o ON p.id = o.productId AND o.is_active = 1 AND (o.expires_at IS NULL OR o.expires_at > NOW())
 WHERE
-    c.parent_category_id = ?
+    (c.id = ? OR c.parent_category_id = ?)
     `;
     //query = `select products.* from products join categories on products.category_id = categories.id where categories.parent_category_id = ?`;
+    queryParams.push(mainCategoryId);
     queryParams.push(mainCategoryId);
 console.log('mainCategoryId '+mainCategoryId);
     if (keyword) {

@@ -45,12 +45,14 @@ const productCategories = require("../routes/productCategories");
 const products = require("../routes/products");
 const users = require("../routes/users");
 const orders = require("../routes/orders");
+const seller = require("../routes/seller");
 
 // Use routes
 app.use("/api/productCategories", productCategories);
 app.use("/api/products", products);
 app.use("/api/users", users);
 app.use("/api/orders", orders);
+app.use("/api/seller", seller);
 
 // Start server
 app.listen(PORT, () => {

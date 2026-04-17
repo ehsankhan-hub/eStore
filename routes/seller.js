@@ -96,9 +96,12 @@ router.get("/products/:sellerId", async (req, res) => {
     // We use the view products_with_images if it exists, or a raw query
     const [rows] = await pool.query(
       `SELECT p.*, 
-        JSON_ARRAYAGG(pi.imageFiles) as galleryImages
+        JSON_ARRAYAGG(pi.imageFiles) as galleryImages,
+        MAX(o.discount_pct) as discount_pct,
+        MAX(o.expires_at) as expires_at
        FROM products p
        LEFT JOIN productimages pi ON p.id = pi.product_id
+       LEFT JOIN offers o ON p.id = o.productId AND o.is_active = 1
        WHERE p.seller_id = ?
        GROUP BY p.id`,
       [sellerId]
@@ -178,6 +181,121 @@ router.delete("/offer/:id", async (req, res) => {
   } catch (error) {
     console.error("Error deleting offer:", error);
     res.status(500).json({ error: "Failed to delete offer", details: error.message });
+  }
+});
+
+// @route   DELETE /api/seller/product/:id
+// @desc    Delete a product and all its associations
+router.delete("/product/:id", async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const productId = req.params.id;
+
+    // 1. Delete associated offers
+    await connection.query("DELETE FROM offers WHERE productId = ?", [productId]);
+
+    // 2. Delete associated images
+    await connection.query("DELETE FROM productimages WHERE product_id = ?", [productId]);
+
+    // 3. Delete from orderdetails (optional - depends on business logic, here we allow it)
+    await connection.query("DELETE FROM orderdetails WHERE productId = ?", [productId]);
+
+    // 4. Delete the product itself
+    const [result] = await connection.query("DELETE FROM products WHERE id = ?", [productId]);
+
+    if (result.affectedRows === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: "Product not found" });
+    }
+
+    await connection.commit();
+    res.json({ message: "Product and all associations deleted successfully" });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Error deleting product:", error);
+    
+    // Provide a more specific error message based on common database errors
+    let errorMessage = "Failed to delete product.";
+    if (error.code === 'ER_ROW_IS_REFERENCED_2' || error.errno === 1451) {
+      errorMessage = "Cannot delete this product because it has been ordered by customers. Try deactivating it instead.";
+    }
+    
+    res.status(500).json({ error: errorMessage, details: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// @route   PUT /api/seller/product/:id
+// @desc    Update product details, images, and offers
+router.put("/product/:id", upload.array("images", 10), async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const productId = req.params.id;
+    const { product_name, category_id, description, price, stock_quantity } = req.body;
+
+    // 1. Update basic product info
+    await connection.query(
+      `UPDATE products 
+       SET product_name = ?, category_id = ?, description = ?, price = ?, stock_quantity = ?
+       WHERE id = ?`,
+      [product_name || null, category_id || null, description || null, price || 0, stock_quantity || 0, productId]
+    );
+
+    // 2. Handle new images if provided (Append to existing)
+    if (req.files && req.files.length > 0) {
+      // Find current max display order for this product
+      const [orderRes] = await connection.query(
+        "SELECT MAX(display_order) as maxOrder FROM productimages WHERE product_id = ?",
+        [productId]
+      );
+      let nextOrder = (orderRes[0]?.maxOrder || 0) + 1;
+
+      for (const file of req.files) {
+        await connection.query(
+          `INSERT INTO productimages (product_id, imageFiles, display_order, is_primary) 
+           VALUES (?, ?, ?, ?)`,
+          [productId, file.filename, nextOrder++, 0]
+        );
+      }
+    }
+
+    // 3. Handle Offer update/creation
+    const { discount_pct, expires_at } = req.body;
+    if (discount_pct && parseInt(discount_pct) > 0) {
+      // Check if active offer exists
+      const [existingOffer] = await connection.query(
+        "SELECT id FROM offers WHERE productId = ? AND is_active = 1 LIMIT 1",
+        [productId]
+      );
+
+      if (existingOffer.length > 0) {
+        await connection.query(
+          "UPDATE offers SET discount_pct = ?, expires_at = ? WHERE id = ?",
+          [discount_pct, expires_at || null, existingOffer[0].id]
+        );
+      } else {
+        await connection.query(
+          `INSERT INTO offers (productId, offer_name, discount_pct, expires_at) 
+           VALUES (?, ?, ?, ?)`,
+          [productId, "Update Offer", discount_pct, expires_at || null]
+        );
+      }
+    }
+
+    await connection.commit();
+    res.json({ message: "Product and associated data updated successfully" });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Error updating product:", error);
+    res.status(500).json({ 
+      error: "Failed to update product details.", 
+      details: error.message 
+    });
+  } finally {
+    connection.release();
   }
 });
 
